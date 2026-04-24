@@ -1,0 +1,144 @@
+{
+  "run_id": "run-0001",
+  "iteration": 1,
+  "evaluated_at": "2026-04-24T09:10:00-07:00",
+  "mission_slug": "ios-app-plan-exec",
+  "targets": [
+    {
+      "target_id": 1,
+      "claim": "FCM HTTP v1 API의 condition 필드에 OR 연산자로 복수 토픽을 지정하면 서버가 합집합을 계산하고, 복수 토픽 구독 단말에 중복 발송을 방지한다",
+      "verdict": "partial",
+      "evidence": [
+        "https://firebase.google.com/docs/cloud-messaging/send-topic-messages",
+        "https://firebase.google.com/docs/cloud-messaging/migrate-v1"
+      ],
+      "risk_if_wrong": "medium",
+      "recommendation": "condition 5-topic 상한은 공식 문서 확인됨. '중복 방지 보장' 대신 '단일 condition 호출이므로 복수 매칭 시 1회만 전달'로 표현 완화. 5-topic 상한을 플랜에 명시.",
+      "pass": true
+    },
+    {
+      "target_id": 2,
+      "claim": "iOS는 앱 완전 종료 상태에서 알림을 받아도 앱을 깨우지 않아 사용자가 탭하지 않으면 delivered 이벤트가 영원히 기록되지 않음 + Silent push throttle은 기기당 하루 3~5개",
+      "verdict": "incorrect",
+      "evidence": [
+        "https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension",
+        "https://developer.apple.com/forums/thread/744901",
+        "https://developer.apple.com/library/archive/technotes/tn2265/_index.html"
+      ],
+      "risk_if_wrong": "high",
+      "recommendation": "두 가지 수정. (A) NSE(UNNotificationServiceExtension) + mutable-content:1 조합은 terminated 상태에서도 실행되므로 거기서 서버에 delivered 기록 가능. v1에서 채택 권장. (B) '3~5개/일' 수치 삭제. Apple 공식은 'a few per hour' 권고, 정확한 수치 미공개.",
+      "pass": false
+    },
+    {
+      "target_id": 3,
+      "claim": "Firebase Messaging iOS SDK 10.25+는 자체 Privacy Manifest를 포함하고, 앱 레벨 추가 선언은 CA92.1(UserDefaults)과 C617.1(FileTimestamp)뿐",
+      "verdict": "partial",
+      "evidence": [
+        "https://firebase.google.com/support/release-notes/ios",
+        "https://github.com/firebase/firebase-ios-sdk/issues/12768",
+        "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api"
+      ],
+      "risk_if_wrong": "high",
+      "recommendation": "(1) SDK 버전을 최신 12.x(2026-04 기준 12.12.1)로 업데이트. 10.25는 2년 낙후. (2) Messaging 모듈 Privacy Manifest 커버리지는 과거 누락 이력 존재. 제출 전 Xcode Privacy Report로 실제 누락 여부 직접 검증 필수. (3) CA92.1 의미는 'App Group 공유 데이터' 용도라 플랜의 '앱 자체 설정 저장'에는 1C8F.1이 더 정확. reason code 재확인.",
+      "pass": false
+    },
+    {
+      "target_id": 4,
+      "claim": "WKWebView + 공유 WKProcessPool + 공유 WKWebsiteDataStore.default()로 탭 간 쿠키 공유",
+      "verdict": "partial",
+      "evidence": [
+        "https://developer.apple.com/documentation/webkit/wkprocesspool",
+        "https://developer.apple.com/documentation/webkit/wkwebsitedatastore",
+        "https://lists.webkit.org/pipermail/webkit-changes/2025-June/319671.html"
+      ],
+      "risk_if_wrong": "low",
+      "recommendation": "iOS 15+부터 WKProcessPool은 사실상 no-op(deprecated 방향). 플랜에서 WKProcessPool 공유 코드는 삭제하고 WKWebsiteDataStore.default()만 공유하면 쿠키/세션 공유 목적 달성. 플랜 L209, L393의 WKProcessPool 언급 제거.",
+      "pass": true
+    },
+    {
+      "target_id": 5,
+      "claim": "bkc.org의 /.well-known/apple-app-site-association 파일 배치로 Universal Links 동작 (Cloudflare/CDN 경로 허용 필요)",
+      "verdict": "partial",
+      "evidence": [
+        "https://developer.apple.com/documentation/xcode/supporting-associated-domains",
+        "https://developer.apple.com/forums/thread/699401",
+        "https://developer.apple.com/forums/thread/658454"
+      ],
+      "risk_if_wrong": "high",
+      "recommendation": "Apple은 AASA 리다이렉트 미허용, Content-Type=application/json 필수, HTTPS 필수, 128KB 제한, 서명 불필요. iOS 14+부터 Apple CDN(app-site-association.cdn-apple.com)이 주기 수집해 캐싱. Cloudflare가 Apple AASA-Bot에 503/차단/Rate Limit 반환하는 실제 사례 다수. Week 1에 `curl https://app-site-association.cdn-apple.com/a/v1/bkc.org`로 Apple CDN 수집 여부 검증 체크리스트 추가 필수. WAF/Bot Fight Mode 완화 점검.",
+      "pass": true
+    },
+    {
+      "target_id": 6,
+      "claim": "네이티브 탭바 + WKWebView + 푸쉬 + Universal Links 조합은 App Store Guideline 4.2를 통과한다",
+      "verdict": "partial",
+      "evidence": [
+        "https://developer.apple.com/app-store/review/guidelines/",
+        "https://median.co/blog/will-apple-approve-my-webview-app"
+      ],
+      "risk_if_wrong": "high",
+      "recommendation": "조합은 올바른 방향. 심사 대응 노트(L472)에 그룹 구독 UI, 캠페인 기록 탭, 오프라인 캐시 등 '웹에서 불가능한 기능' 스크린샷 명시 권장. '교회 내부 조직 앱' 예외(4.2.2)는 명문화되어 있지 않으므로 의존 금지.",
+      "pass": true
+    },
+    {
+      "target_id": 7,
+      "claim": "Action Scheduler는 WP Cron의 트래픽 의존성과 PHP max_execution_time 30초 제약을 해결한다",
+      "verdict": "confirmed",
+      "evidence": [
+        "https://actionscheduler.org/",
+        "https://github.com/woocommerce/action-scheduler"
+      ],
+      "risk_if_wrong": "low",
+      "recommendation": "사실 확인. WooCommerce 번들이 아니면 독립 플러그인으로 설치해야 한다는 점을 Week 1 체크리스트에 명시. Action Scheduler 버전(3.9.0+) 고정 및 Composer require 권장.",
+      "pass": true
+    },
+    {
+      "target_id": 8,
+      "claim": "iOS 16 최소 버전으로 SwiftUI NavigationStack 사용 + iPhone 8 이상 커버",
+      "verdict": "partial",
+      "evidence": [
+        "https://iosref.com/ios-usage",
+        "https://support.apple.com/guide/iphone/iphone-models-compatible-with-ios-26-iphe3fa5df43/ios"
+      ],
+      "risk_if_wrong": "medium",
+      "recommendation": "iOS 16+ 누적 채택률 94.4%로 커버리지 충분, iPhone 8 지원은 iOS 16이 마지막이라는 사실도 정확. 단 iOS 16 NavigationStack 초기 버그 이력 있음. 장년층 업데이트 지연을 고려해 iOS 16 유지가 타당하나, 초기 베타에서 NavigationStack 관련 iOS 16 전용 이슈 모니터링 필요. iOS 17 상향은 약 5.9% 손실이므로 교회 선택 사항.",
+      "pass": true
+    },
+    {
+      "target_id": 9,
+      "claim": "iOS 앱 + WP 플러그인 + 관리자 대시보드 + 텔레메트리 + 심사까지 10-12주 타임라인이 현실적",
+      "verdict": "partial",
+      "evidence": [
+        "doc/ios-app-plan.md (L379-477, L483)",
+        "https://developer.apple.com/app-store/review/"
+      ],
+      "risk_if_wrong": "high",
+      "recommendation": "(1) Week 10을 '제출', Week 11-12를 '심사 대응 + 출시'로 분리. 심사 리젝 시 재제출 사이클 1주 부족. (2) '신규 코드 100% 행 커버리지'(L483)는 자원봉사 팀 구조와 충돌. Iron Rule 7개 항목(L525-532)에 집중, 나머지는 80%+로 완화. (3) 경험 iOS 개발자 풀타임 없으면 14-16주가 더 현실적. (4) Week 6 CI/Fastlane 초기 셋업 별도 0.5-1일 버퍼 필요.",
+      "pass": false
+    },
+    {
+      "target_id": 10,
+      "claim": "FCM 서비스 계정 키를 웹 루트 바깥 배치(/var/www/bkc-secrets/), 권한 600, www-data 소유, wp-config.php 상수 경로 참조",
+      "verdict": "confirmed",
+      "evidence": [
+        "OWASP Secrets Management Cheat Sheet",
+        "Google Cloud Service Account Key best practices"
+      ],
+      "risk_if_wrong": "medium",
+      "recommendation": "패턴 자체는 업계 표준. 추가 보강: (1) AWS 기반이면 Secrets Manager 또는 SSM Parameter Store(SecureString)로 장기 이전 고려. (2) 키 로테이션 주기 명시(최소 연 1회). (3) wp-config.php의 BKC_FCM_SERVICE_ACCOUNT_PATH 상수를 환경변수 fallback과 병행(`getenv('BKC_FCM_SVC_ACCT') ?: '/var/www/bkc-secrets/...'`). (4) 파일 권한 600 + selinux/apparmor 컨텍스트 검증 항목 추가.",
+      "pass": true
+    }
+  ],
+  "aggregate": {
+    "pass_count": 7,
+    "fail_count": 3,
+    "total": 10,
+    "min_pass_required": 8,
+    "run_pass": false,
+    "high_risk_failures": [
+      {"target_id": 2, "summary": "NSE 대안 + Silent push throttle 수치 수정 필요"},
+      {"target_id": 3, "summary": "Firebase SDK 버전 업데이트 + Privacy Manifest 실제 검증 + reason code 재확인"},
+      {"target_id": 9, "summary": "심사 대응 주차 분리 + 커버리지 목표 완화"}
+    ]
+  }
+}
