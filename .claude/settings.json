@@ -1,0 +1,10 @@
+{
+  "enabledPlugins": {
+    "oh-my-claudecode@omc": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bash *)"
+    ]
+  }
+}
