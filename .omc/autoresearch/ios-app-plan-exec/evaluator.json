@@ -1,0 +1,19 @@
+{
+  "name": "ios-app-plan-exec-evaluator",
+  "version": 1,
+  "type": "rubric",
+  "fields": {
+    "target_id": "integer 1..10 matching mission.md",
+    "claim": "string — the specific claim being tested",
+    "verdict": "enum: confirmed | partial | outdated | incorrect | unverified",
+    "evidence": "array of source references (URLs, doc titles)",
+    "risk_if_wrong": "enum: low | medium | high",
+    "recommendation": "string — actionable change to the plan",
+    "pass": "boolean — verdict in {confirmed, partial} AND actionable recommendation present"
+  },
+  "run_pass_criteria": {
+    "min_pass_count": 8,
+    "total_targets": 10,
+    "high_risk_targets_must_have_verdict": true
+  }
+}
