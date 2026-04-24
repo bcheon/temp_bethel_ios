@@ -67,5 +67,3 @@ iOSInjectionProject/
 .omc/sessions/
 .omc/logs/
 
-# Local Claude Code settings
-.claude/settings.local.json
