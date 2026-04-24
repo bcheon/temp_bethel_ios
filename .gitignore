@@ -1,0 +1,10 @@
+# OMC runtime state
+.omc/state/
+.omc/sessions/
+.omc/logs/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# macOS
+.DS_Store
