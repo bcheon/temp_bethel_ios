@@ -101,3 +101,7 @@ schemes:
         - BKCTests
         - BKCUITests
       gatherCoverageData: false
+      environmentVariables:
+        - variable: BKC_UITEST
+          value: "1"
+          isEnabled: true
