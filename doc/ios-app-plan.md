@@ -1,5 +1,9 @@
 # BKC 교회 iOS 앱 — 구현 계획
 
+> **상태 (v1.0.0 구현 완료, 2026-04 기준)**
+> 코드/CI/테스트는 모두 머지 완료. 78개 자동화 테스트 (41 PHPUnit + 34 XCTest + 3 XCUITest) 통과 중.
+> 남은 작업: 실제 Apple Team ID 치환(AASA + project.yml + Appfile), 프로덕션 `GoogleService-Info.plist` + FCM 서비스 계정 JSON 배치, bkc.org `/.well-known/` 배포, 개인정보처리방침 페이지, App Store 제출. 구현 진행 현황은 §"구현 단계 (10~12주 로드맵)"의 각 주차에 ✓로 표시.
+
 ## Context
 
 베델교회 어바인(bkc.org, WordPress + AWS 기반)은 현재 카카오톡 채널을 통해 교인에게 푸쉬 공지를 발송하고 있으나, **유료 구독/발송 비용 부담 + 카카오톡 플랫폼 종속성**이 문제로 대두되었다. 이를 해결하기 위해 자체 iOS 앱을 구축하여 (1) 자체 푸쉬 노티피케이션 인프라로 카톡 비용을 제거하고, (2) 교회 웹사이트 콘텐츠를 모바일 경험으로 제공하고자 한다.
@@ -34,6 +38,27 @@
 - Android 동시 출시 → v2
 - A/B 테스트 인프라, 상세 분석 이벤트 → 교회 규모 대비 과잉
 - 사용자 간 상호작용, 댓글, 기도 요청 제출 기능 → v2
+
+## 구현 현황 (v1.0.0 — 2026-04 기준)
+
+| 영역 | 산출물 | 상태 |
+|------|--------|------|
+| iOS 앱 (메인) | `ios/BKC/BKC/{App,Views,Services,Models}` 18개 Swift 파일 | ✓ 머지 |
+| NSE | `BKCNotificationServiceExtension/NotificationService.swift` (`mutable-content` payload에서 `delivered` POST) | ✓ 머지 (단, NSE-internal 테스트는 빌드 제외 — v1.1에 별도 unit-test 번들) |
+| iOS 테스트 | XCTest 34개 + XCUITest 3개 | ✓ CI 통과 |
+| WP 플러그인 | `wordpress-plugin/bkc-push/` (9개 includes 클래스 + 4개 admin views + 4개 DB 테이블) | ✓ 머지 |
+| WP 테스트 | PHPUnit 41개 (8개 슈트, 오프라인 stub) | ✓ CI 통과 |
+| REST API | `bkc/v1` 8개 라우트 (`/subscribe`, `/campaigns`, `/events`, `/stats/*`, `/cancel`) | ✓ 머지 |
+| CI | GitHub Actions: actionlint + WP 매트릭스(PHP 8.1/8.2/8.3) + iOS macos-15 + Xcode latest-stable + 동적 시뮬레이터 | ✓ 작동 |
+| 로컬 자동화 | `Makefile`, `bin/test.sh`, `make ci-local` (act + Docker) | ✓ |
+| Fastlane | `setup` / `test` / `beta` lane 스켈레톤 | ✓ 코드 / ☐ `match` 미설정 |
+| Universal Links AASA | `well-known/apple-app-site-association` 파일 | ✓ 파일 / ☐ Team ID 치환 + 배포 |
+| `GoogleService-Info.plist` | placeholder만 커밋 (`isUITest` 가드로 시뮬레이터 빌드 통과) | ☐ 프로덕션 키 배치 |
+| FCM 서비스 계정 JSON | 경로 상수 + 환경변수 fallback | ☐ 키 배치 + chmod 600 |
+| 개인정보처리방침 페이지 | bkc.org 측 | ☐ 작성 |
+| TestFlight + App Store 제출 | Apple 계정 의존 | ☐ |
+
+상세 IRON RULE 7개는 §"회귀 방지 (IRON RULE)" 표 참고. 모두 자동화 머지 게이트로 작동.
 
 ## 보안 아키텍처
 
@@ -213,7 +238,7 @@ iOS 앱 (최초 실행)       PushService           WP REST API        FCM
 - **관측:** `os_log` (`OSLog(subsystem: "org.bkc.app", category: "push")`)
 
 ### WordPress 플러그인 (신규)
-- **언어:** PHP 8.0+ (WP 권장 최소)
+- **언어:** PHP 8.0+ (WP 권장 최소). CI 매트릭스는 8.1 / 8.2 / 8.3 (PHPUnit 10 최소 요건이 PHP 8.1).
 - **비동기 처리:** Action Scheduler 라이브러리 (WooCommerce가 채택한 검증된 스케줄러). WP Cron만 쓰면 트래픽 없는 시간에 실행 안 되는 문제 존재.
 - **관리자 UI:** WP admin menu "푸쉬 공지" + React 없이 기본 WP 컴포넌트
 - **DB 스키마:**
@@ -281,13 +306,13 @@ iOS 앱 (최초 실행)       PushService           WP REST API        FCM
   - `GET /wp-json/bkc/v1/stats/campaign/{uuid}` — **관리자 전용** (`permission_callback: current_user_can('manage_options')` + `wp_rest` nonce), 해당 캠페인 집계 통계
   - `GET /wp-json/bkc/v1/stats/subscribers` — **관리자 전용**, 그룹별 활성 구독자 수 + 주간 추이
   - `POST /wp-json/bkc/v1/campaigns/{uuid}/cancel` — **관리자 전용**, `status=queued` 캠페인 취소 (Action Scheduler job 취소 + `status=cancelled`로 전이). 이미 sending/sent 상태는 취소 불가.
-- **FCM 호출:** `kreait/firebase-php` 라이브러리 또는 직접 HTTP v1. **Topic Condition 기반 단일 호출.**
+- **FCM 호출:** **직접 HTTP v1** (`wp_remote_post`) + `firebase/php-jwt` 6.x로 service-account JWT 직접 서명. `kreait/firebase-php` 같은 무거운 SDK는 의존성 비용 회피 차원에서 채택 안 함. **Topic Condition 기반 단일 호출.**
   - 단일 그룹: `"topic": "bkc_all"` → 해당 토픽 구독자에게 전달
   - 복수 그룹: `"condition": "'bkc_youth' in topics || 'bkc_newfam' in topics"` → 단일 HTTP 호출로 OR 합집합 평가, 복수 매칭 단말에 1회만 전달. **FCM condition은 최대 5 토픽**까지 (Google 공식 문서). 이를 초과할 경우 복수 호출 + 서버측 발송 기록 기반 dedup 필요 (v1 범위 내는 3 토픽이라 여유 있음).
   - `all` 포함 시: `condition` 생략하고 `topic: bkc_all`로 단일 호출 (전체 발송)
 
 ### 인프라
-- **iOS 빌드/배포:** Xcode 15+ + TestFlight (Apple Developer Program $99/년)
+- **iOS 빌드/배포:** Xcode 16+ 권장 (Firebase 12.x SPM resolve용) + TestFlight (Apple Developer Program $99/년). CI는 macos-15 runner + `latest-stable` Xcode 사용.
 - **Firebase:** 무료 Spark 티어 충분 (Topic fan-out 무제한 무료)
 - **WordPress:** bkc.org 기존 AWS 인프라 + stage 사이트 권장 (`stage.bkc.org`)
 - **CI:** GitHub Actions로 iOS 테스트 자동 실행, TestFlight 자동 업로드 (Fastlane)
@@ -296,7 +321,7 @@ iOS 앱 (최초 실행)       PushService           WP REST API        FCM
 ## 디렉터리 구조
 
 ```
-fanatical-pruner/
+temp_bethel_ios/                        # 리포 루트
 ├── doc/
 │   └── ios-app-plan.md              # 이 문서
 ├── ios/
@@ -324,25 +349,30 @@ fanatical-pruner/
 │       │   ├── Models/
 │       │   │   ├── PushCampaign.swift
 │       │   │   ├── SubscriptionGroup.swift
-│       │   │   └── DeepLink.swift
+│       │   │   ├── DeepLink.swift
+│       │   │   └── TelemetryEvent.swift
 │       │   └── Resources/
 │       │       ├── Info.plist
 │       │       ├── PrivacyInfo.xcprivacy        # 심사 필수
 │       │       ├── BKC.entitlements             # Associated Domains (Universal Links)
-│       │       └── GoogleService-Info.plist     # Firebase config (커밋 X, Xcode Config 변수)
+│       │       └── GoogleService-Info.plist     # Firebase config (커밋 X, placeholder만 커밋)
 │       ├── BKCNotificationServiceExtension/     # NSE target — terminated 상태 delivered 기록
 │       │   ├── NotificationService.swift        # didReceive → POST /events (delivered)
+│       │   ├── NotificationServiceTests.swift   # ⚠ project.yml 의 NSE 타겟 excludes 로 빌드 제외 — v1.1에 별도 unit-test 번들 추가 예정
 │       │   ├── Info.plist                       # NSExtensionPointIdentifier: UNNotificationServiceExtension
+│       │   ├── BKCNotificationServiceExtension.entitlements  # App Group (v1.1 device_id 공유 대비)
 │       │   └── PrivacyInfo.xcprivacy            # NSE 전용 manifest
-│       └── BKCTests/
-│           ├── PushServiceTests.swift
-│           ├── DeepLinkRouterTests.swift
-│           ├── GroupStoreTests.swift
-│           ├── CampaignCacheTests.swift
-│           ├── BKCAPIClientTests.swift
-│           ├── TelemetryServiceTests.swift
-│           └── Support/
-│               └── MockURLProtocol.swift
+│       ├── BKCTests/                            # XCTest 유닛 (34개)
+│       │   ├── PushServiceTests.swift
+│       │   ├── DeepLinkRouterTests.swift
+│       │   ├── GroupStoreTests.swift
+│       │   ├── CampaignCacheTests.swift
+│       │   ├── BKCAPIClientTests.swift
+│       │   ├── TelemetryServiceTests.swift
+│       │   └── Support/
+│       │       └── MockURLProtocol.swift
+│       └── BKCUITests/                          # XCUITest UI 스모크 (3개)
+│           └── BKCAppLaunchTests.swift          # 4개 탭 가시성, 탭 전환, 크래시 없이 launch
 └── wordpress-plugin/
     └── bkc-push/
         ├── bkc-push.php                 # 플러그인 엔트리, 활성화 hooks
@@ -363,25 +393,31 @@ fanatical-pruner/
         │   ├── class-bkc-stats-rollup.php     # 1시간 cron 집계 잡
         │   ├── class-bkc-groups.php           # 화이트리스트
         │   └── class-bkc-rate-limiter.php     # 공개 엔드포인트 보호
-        ├── tests/
+        ├── tests/                             # PHPUnit 10 (PascalCase Test_*.php strict 매칭)
         │   ├── bootstrap.php
-        │   ├── test-fcm-client.php
-        │   ├── test-rest-api.php
-        │   ├── test-dispatcher.php
-        │   ├── test-subscriptions.php
-        │   ├── test-idempotency.php
-        │   ├── test-events-endpoint.php
-        │   ├── test-stats-rollup.php
-        │   └── test-stats-permissions.php
-        ├── vendor/                            # Composer (Action Scheduler, kreait/firebase-php)
+        │   ├── stubs/                         # exclude-from-classmap (composer.json)
+        │   │   └── wp-stubs.php               # 오프라인 stub: WP 없이 phpunit 실행
+        │   ├── Test_FCM_Client.php            # 9 cases
+        │   ├── Test_REST_API.php              # 7 cases
+        │   ├── Test_Dispatcher.php            # 5 cases
+        │   ├── Test_Subscriptions.php         # 5 cases
+        │   ├── Test_Idempotency.php           # 1 case (IRON RULE)
+        │   ├── Test_Events_Endpoint.php       # 5 cases
+        │   ├── Test_Stats_Rollup.php          # 3 cases (IRON RULE)
+        │   └── Test_Stats_Permissions.php     # 6 cases
+        ├── composer.json + composer.lock      # 둘 다 커밋 (재현 가능 빌드)
+        ├── phpunit.xml.dist
+        ├── vendor/                            # gitignore (woocommerce/action-scheduler, firebase/php-jwt)
         └── assets/
             └── admin.js                       # 확인 모달 + submit 방지
 ```
 
 ## 구현 단계 (10~12주 로드맵)
 
-**Week 1 — 프로젝트 기반 구축 + 심사 필수 요건**
-- Apple Developer Program 등록 확인
+> Week 1~6은 **코드/CI/테스트 구현 완료**(`0d183bd feat: BKC iOS 앱 + WP 플러그인 v1 구현 + 테스트 자동화`). ✓ 마크는 메인 브랜치에 머지된 항목, ☐ 마크는 외부 자원/수동 작업 필요 항목.
+
+**Week 1 — 프로젝트 기반 구축 + 심사 필수 요건** _(✓ 코드/✓ CI/☐ Apple 계정·실 키)_
+- ☐ Apple Developer Program 등록 확인
 - Xcode 프로젝트 생성, 번들 ID `org.bkc.churchapp`, Team ID 확보
 - **`UNNotificationServiceExtension` 타겟 추가** (`BKCNotificationServiceExtension`) — delivered 이벤트 기록용
 - `PrivacyInfo.xcprivacy` 작성 + **Xcode Privacy Report 검증** (Firebase SDK Messaging/Installations 모듈 manifest 누락 여부 확인, 누락 시 앱 레벨 보강)
@@ -399,7 +435,7 @@ fanatical-pruner/
 - FCM 서비스 계정 키를 웹 루트 바깥 배치 + `wp-config.php` 상수 + 환경변수 fallback (`getenv('BKC_FCM_SVC_ACCT') ?: '/var/www/bkc-secrets/fcm-service-account.json'`)
 - 테스트 환경: stage WP + 테스트용 Firebase 프로젝트 분리
 
-**Week 2 — WebView 탭 + Universal Links**
+**Week 2 — WebView 탭 + Universal Links** _(✓ 코드/☐ 실기기 검증)_
 - 각 탭 URL 매핑 (홈: `bkc.org/`, 공지는 네이티브, 설교: `bkc.org/sermon`, 더보기: `bkc.org/info`)
 - `WKWebView` + 공유 `WKWebsiteDataStore.default()` 적용 (탭 간 쿠키 공유. `WKProcessPool`은 iOS 15+에서 no-op이므로 사용하지 않음)
 - `WebViewStore @StateObject`로 재생성 누수 방지
@@ -407,7 +443,7 @@ fanatical-pruner/
 - 외부 링크(YouTube, Instagram, Tithe.ly) Safari 핸드오프
 - Universal Links 실기기 검증 (SMS로 `https://bkc.org/sermon/...` 발송 → 앱 열림 확인)
 
-**Week 3 — FCM 등록 흐름 + Topic 구독**
+**Week 3 — FCM 등록 흐름 + Topic 구독** _(✓ 코드/✓ NSE/☐ 실 Firebase)_
 - Firebase SDK 통합 (Swift Package Manager: `Firebase/Messaging` 12.x, 2026-04 최신 12.12.1)
 - 알림 권한 요청 + 거부 시 "설정 앱" 유도 플로우
 - FCM 토큰 획득 → WP `POST /subscribe` (device_id UUID 생성)
@@ -421,7 +457,7 @@ fanatical-pruner/
 - **`BKCNotificationServiceExtension` 구현** — NSE `didReceive(_:withContentHandler:)`에서 `POST /events`로 `delivered` 직접 전송 (메인 앱 버퍼 거치지 않음, 30초 제약 내 완료 필수). `URLSession.shared.uploadTask` + 최소 재시도 1회. contentHandler는 반드시 호출.
 - 테스트: `PushServiceTests`, `GroupStoreTests`, `TelemetryServiceTests`, `NotificationServiceExtensionTests` 작성
 
-**Week 4 — WordPress 발송 + 비동기 큐 + idempotency**
+**Week 4 — WordPress 발송 + 비동기 큐 + idempotency** _(✓ 코드/✓ 테스트)_
 - 관리자 작성 UI: 제목/본문/딥링크/그룹 선택/미리보기
   - "전체(all)" 체크박스: 체크 시 다른 그룹 체크박스 disabled + 라벨을 "전체 발송"으로 변경
   - 다른 그룹 체크 시 `all`은 자동 uncheck (상호 배타)
@@ -437,9 +473,9 @@ fanatical-pruner/
 - **"취소" 버튼 (status=queued 한정)**: `POST /campaigns/{uuid}/cancel` 호출 → Action Scheduler job 취소 + `status=cancelled` 전이. 실수 발송 10초 내 대응 가능.
 - **`POST /events` 엔드포인트** + `wp_bkc_campaign_events` 테이블 + 검증·레이트 리밋
 - 발송 시점에 `subscribers_targeted` 값을 `wp_bkc_campaign_stats`에 기록 (나중에 전달률 계산 기준)
-- 테스트: `test-fcm-client.php`, `test-dispatcher.php`, `test-idempotency.php`, `test-events-endpoint.php`
+- 테스트: `Test_FCM_Client.php`, `Test_Dispatcher.php`, `Test_Idempotency.php`, `Test_Events_Endpoint.php`
 
-**Week 5 — 공지 탭 + 딥링크 + 로컬 캐시**
+**Week 5 — 공지 탭 + 딥링크 + 로컬 캐시** _(✓ 코드/✓ 테스트)_
 - 공지 탭: 앱 실행 시 `CampaignCache`에서 마지막 50건 즉시 표시 (오프라인에서도 보임)
 - 백그라운드: `GET /campaigns?since=<last_synced_at>` 델타 페칭, 캐시 머지
 - 탭 시 `DeepLinkRouter.route(url:)` → 해당 WebView 탭 활성화 + URL 주입
@@ -449,7 +485,7 @@ fanatical-pruner/
 - **DeepLinkRouter에서 `deeplinked` 이벤트 기록** (라우팅 성공 시 TelemetryService 호출)
 - 테스트: `DeepLinkRouterTests`, `CampaignCacheTests`, `TelemetryServiceTests` (flush 시나리오)
 
-**Week 6 — 통계 Rollup + CI 셋업**
+**Week 6 — 통계 Rollup + CI 셋업** _(✓ 통계/✓ CI/☐ Fastlane match)_
 - **`class-bkc-stats-rollup.php` 구현 + Action Scheduler 1시간 recurring**: 이벤트 → 집계 업데이트
 - **`GET /stats/campaign/{uuid}`, `GET /stats/subscribers` 엔드포인트** (관리자 권한 체크)
 - **원시 이벤트 6개월 이전 자동 삭제 cron**
@@ -458,41 +494,41 @@ fanatical-pruner/
 - `BKCAPIClientTests` (MockURLProtocol 활용)
 - 실패 토큰 정리 cron: `unregistered` 에러 응답 받은 device_id를 subscriptions 테이블에서 제거
 - Privacy/Security 체크: Privacy Manifest 검증 (텔레메트리 선언 포함), secret 누출 스캔
-- 테스트: `test-stats-rollup.php` (이벤트 → stats 테이블 집계 정확성)
+- 테스트: `Test_Stats_Rollup.php` (이벤트 → stats 테이블 집계 정확성)
 
-**Week 7 — 관리자 대시보드 UI**
+**Week 7 — 관리자 대시보드 UI** _(✓ 뷰 파일/☐ 실 데이터 검증)_
 - `dashboard.php`: 메인 대시보드 (구독자 현황 + 최근 캠페인 요약)
 - `campaign-stats.php`: 캠페인별 상세 지표 (전달률, 열람률, 딥링크 CTR)
 - Chart.js (CDN 사용 안 함, WP에 번들) 또는 순수 HTML 스파크라인
 - CSV 내보내기 기능
 - 관리자 권한 가드 테스트 (비권한 사용자는 대시보드 접근 불가)
 
-**Week 8 — 내부 베타 (TestFlight)**
+**Week 8 — 내부 베타 (TestFlight)** _(☐ 외부 자원 필요)_
 - 내부 테스터(교장/기술팀 5~10명) 배포
 - 실기기 푸쉬 전달 테스트 매트릭스: iOS 16/17/18 × 포어그라운드/백그라운드/강제종료
 - 그룹 타겟팅 검증 (youth 발송 시 newfamily만 구독자는 미수신)
 - 한글 푸쉬 본문 인코딩 점검 (이모지 포함)
 - Universal Links 실기기 수동 테스트
 
-**Week 9 — 외부 베타 (100~300명)**
+**Week 9 — 외부 베타 (100~300명)** _(☐ 외부 자원 필요)_
 - TestFlight 외부 테스트 초대 (교회 게시판 + 카톡 채널로 초대 링크 공지)
 - 주일 공지를 앱 푸쉬 + 카톡 채널 병행 발송 (4주 병행 운영)
 - 실데이터로 대시보드 검증: 전달률·열람률이 예상 범위인지 (전달 > 90%, 열람 > 40% 기대)
 - 버그 트래커 Google Form 링크 "더보기" 탭에 추가
 
-**Week 10 — App Store 제출**
+**Week 10 — App Store 제출** _(☐ Apple 계정 + 메타데이터 필요)_
 - 개인정보처리방침 페이지 (bkc.org에 추가) — 수집 항목 · 보관 기간 · 텔레메트리 설명 · 문의처
 - 앱스토어 스크린샷(6.7" iPhone) + 메타데이터 한국어
 - 심사 대응 노트: "native tab bar + push notifications with group targeting + Universal Links + 그룹 구독 UI + 오프라인 공지 캐시" 강조 (native value 명시) + 테스트 계정 + 비디오 프리뷰
 - Guideline 4.2/5.1.1/5.1.2 대비 ("교회 내부 조직 앱" 예외는 가이드라인에 명문화되어 있지 않으므로 의존 금지)
 - App Store Connect 제출
 
-**Week 11 — 심사 대응 + 리젝 재제출 사이클**
+**Week 11 — 심사 대응 + 리젝 재제출 사이클** _(☐ 외부 응답 의존)_
 - Apple 심사 통상 24-48h, 추가 정보 요청 시 수일 소요. 리젝 대응 여유 1주 확보.
 - 리뷰어 피드백 기반 수정 + 재제출 (예: native value 보강 스크린샷/비디오, 테스트 계정 이슈)
 - 병행: 출시 대비 카톡 채널 공지 초안, 교인 안내 포스터/전단 준비
 
-**Week 12 — 공개 출시 + 카톡 단계적 중단 준비**
+**Week 12 — 공개 출시 + 카톡 단계적 중단 준비** _(☐ 출시 게이트)_
 - 단계적 롤아웃 (TestFlight → App Store)
 - 카톡 채널 공지에 "앱 전환 안내" 고정, 2주 후 카톡 단독 공지 중단 계획
 - 출시 후 첫 주 지표 검토 + 이상 지표 대응 (전달률 90% 미만 시 근본 원인 조사)
@@ -520,14 +556,14 @@ fanatical-pruner/
 
 | 대상 | 파일 | 핵심 테스트 케이스 |
 |------|------|-----------------|
-| `BKC_FCM_Client` | `test-fcm-client.php` | 단일 topic payload 형식, **복수 그룹 시 condition 문자열 조립**, **`all` 포함 시 condition 생략**, 401(키 만료) 핸들링, 한글/이모지 |
-| `BKC_Dispatcher` | `test-dispatcher.php` | queued → sending → sent 상태 전이, 실패 시 error 기록, Action Scheduler 연동, **queued 상태에서 cancel 요청 시 job 취소 + status=cancelled** |
-| `BKC_Subscriptions` | `test-subscriptions.php` | 신규 등록, 중복 device_id 업서트, 그룹 화이트리스트 검증 |
-| `BKC_REST_API` | `test-rest-api.php` | 토큰 형식 검증, 레이트 리밋, 잘못된 그룹 거부, CORS |
-| Idempotency | `test-idempotency.php` | 같은 UUID로 재요청 시 1회만 발송 (더블클릭 시나리오) |
-| `BKC_Events` | `test-events-endpoint.php` | 배치 수집, 100건 초과 거부, 알 수 없는 campaign_uuid 조용히 drop, 동일 (device, campaign, type) 중복 제거 |
-| `BKC_Stats_Rollup` | `test-stats-rollup.php` | 이벤트 → stats 테이블 정확 집계, 재실행 시 멱등, 6개월 이전 이벤트 삭제 |
-| Stats API 권한 | `test-stats-permissions.php` | 비관리자는 `/stats/*` 접근 불가, 관리자만 상세 데이터 확인 |
+| `BKC_FCM_Client` | `Test_FCM_Client.php` | 단일 topic payload 형식, **복수 그룹 시 condition 문자열 조립**, **`all` 포함 시 condition 생략**, 401(키 만료) 핸들링, 한글/이모지 |
+| `BKC_Dispatcher` | `Test_Dispatcher.php` | queued → sending → sent 상태 전이, 실패 시 error 기록, Action Scheduler 연동, **queued 상태에서 cancel 요청 시 job 취소 + status=cancelled** |
+| `BKC_Subscriptions` | `Test_Subscriptions.php` | 신규 등록, 중복 device_id 업서트, 그룹 화이트리스트 검증 |
+| `BKC_REST_API` | `Test_REST_API.php` | 토큰 형식 검증, 레이트 리밋, 잘못된 그룹 거부, CORS |
+| Idempotency | `Test_Idempotency.php` | 같은 UUID로 재요청 시 1회만 발송 (더블클릭 시나리오) |
+| `BKC_Events` | `Test_Events_Endpoint.php` | 배치 수집, 100건 초과 거부, 알 수 없는 campaign_uuid 조용히 drop, 동일 (device, campaign, type) 중복 제거 |
+| `BKC_Stats_Rollup` | `Test_Stats_Rollup.php` | 이벤트 → stats 테이블 정확 집계, 재실행 시 멱등, 6개월 이전 이벤트 삭제 |
+| Stats API 권한 | `Test_Stats_Permissions.php` | 비관리자는 `/stats/*` 접근 불가, 관리자만 상세 데이터 확인 |
 
 ### E2E (수동 + 부분 자동화)
 
@@ -545,28 +581,28 @@ fanatical-pruner/
 ### 회귀 방지 (IRON RULE)
 
 다음은 **반드시** 자동화 회귀 테스트 필요:
-1. `test-idempotency.php` — 관리자 중복 제출 방지 (사용자 불만 직결)
-2. `test-fcm-client.php::condition_dedup` — 복수 그룹 구독자에게 한 캠페인이 2번 전달되지 않는지 (condition 조립 검증)
+1. `Test_Idempotency.php` — 관리자 중복 제출 방지 (사용자 불만 직결)
+2. `Test_FCM_Client.php::condition_dedup` — 복수 그룹 구독자에게 한 캠페인이 2번 전달되지 않는지 (condition 조립 검증)
 3. `GroupStoreTests.cannot_unsubscribe_all` — `all` 토픽 해제 시도 시 거부 (공지 소실 방지)
 4. `DeepLinkRouterTests.external URL → Safari` — WebView 안에서 YouTube 열리는 회귀
 5. `GroupStoreTests.롤백` — 중간 실패 시 로컬/서버 불일치 회귀
 6. `TelemetryServiceTests.offline_buffer` — 네트워크 장애 시 이벤트 유실 회귀 (대시보드 신뢰도 직결)
-7. `test-stats-rollup.php::idempotent_rerun` — 집계 중복/누락 회귀
+7. `Test_Stats_Rollup.php::idempotent_rerun` — 집계 중복/누락 회귀
 
 ## 실패 모드 & 복구
 
 | 실패 시나리오 | 발생 빈도 | 현재 대응 | 테스트 |
 |------------|---------|---------|-------|
-| FCM 서비스 계정 키 만료 | 낮음 (드물지만 재난급) | WP에서 FCM 401 감지 → 관리자 이메일 + 발송 로그에 명시. 수동 로테이션 | ✓ `test-fcm-client.php` |
-| PHP 타임아웃 중 발송 | 중간 | Action Scheduler가 재시도 (최대 3회), campaign uuid dedup으로 중복 방지 | ✓ `test-dispatcher.php` |
+| FCM 서비스 계정 키 만료 | 낮음 (드물지만 재난급) | WP에서 FCM 401 감지 → 관리자 이메일 + 발송 로그에 명시. 수동 로테이션 | ✓ `Test_FCM_Client.php` |
+| PHP 타임아웃 중 발송 | 중간 | Action Scheduler가 재시도 (최대 3회), campaign uuid dedup으로 중복 방지 | ✓ `Test_Dispatcher.php` |
 | 사용자가 알림 권한 거부 | 흔함 | 앱에서 "설정으로 이동" 버튼 + 알림 없어도 WebView 콘텐츠는 사용 가능 | ✓ `PushServiceTests` |
 | 네트워크 오프라인 중 앱 실행 | 흔함 | 공지 탭은 로컬 캐시 50건 표시, WebView 탭은 "인터넷 필요" 에러 + 재시도 | ✓ `CampaignCacheTests` |
-| 관리자 더블클릭 발송 | 중간 (실수로 일어남) | JavaScript 버튼 비활성화 + 서버 uuid dedup + confirm 모달 | ✓ `test-idempotency.php` |
-| 복수 그룹 구독자 중복 수신 | 흔함 (multi-topic + multi-target 발송 시) | 단일 condition 호출로 OR 합집합 평가, 매칭 단말당 1회 전달 (condition 최대 5 토픽 제한 내). 6 토픽 이상이면 병렬 발송 + 서버측 dedup 필요. | ✓ `test-fcm-client.php::condition_dedup` |
+| 관리자 더블클릭 발송 | 중간 (실수로 일어남) | JavaScript 버튼 비활성화 + 서버 uuid dedup + confirm 모달 | ✓ `Test_Idempotency.php` |
+| 복수 그룹 구독자 중복 수신 | 흔함 (multi-topic + multi-target 발송 시) | 단일 condition 호출로 OR 합집합 평가, 매칭 단말당 1회 전달 (condition 최대 5 토픽 제한 내). 6 토픽 이상이면 병렬 발송 + 서버측 dedup 필요. | ✓ `Test_FCM_Client.php::condition_dedup` |
 | 사용자가 `all` 해제 시도 | 흔함 (실수 또는 "조용히 하고 싶음") | UI에서 disabled, API도 거부. 앱 알림 자체를 끄려면 iOS 시스템 설정 유도 | ✓ `GroupStoreTests.cannot_unsubscribe_all` |
 | `/events` 엔드포인트 장애 | 중간 (WP 다운 / 네트워크) | 클라이언트가 UserDefaults에 최대 7일 버퍼링, 재시도. 7일 초과 이벤트만 drop | ✓ `TelemetryServiceTests.offline_buffer` |
-| 텔레메트리 이벤트 중복 전송 | 흔함 (앱 재시작·flush 경합) | 서버 측 (device_id, campaign_uuid, event_type) 조합 UNIQUE 검증으로 dedup | ✓ `test-events-endpoint.php::dedup` |
-| rollup cron 정지 | 낮음 (Action Scheduler 장애) | stats 테이블 `last_rolled_up` 모니터링, 2시간 이상 stale 시 관리자 알림 | ✓ `test-stats-rollup.php::idempotent_rerun` |
+| 텔레메트리 이벤트 중복 전송 | 흔함 (앱 재시작·flush 경합) | 서버 측 (device_id, campaign_uuid, event_type) 조합 UNIQUE 검증으로 dedup | ✓ `Test_Events_Endpoint.php::dedup` |
+| rollup cron 정지 | 낮음 (Action Scheduler 장애) | stats 테이블 `last_rolled_up` 모니터링, 2시간 이상 stale 시 관리자 알림 | ✓ `Test_Stats_Rollup.php::idempotent_rerun` |
 | 이벤트 테이블 폭증 | 낮음 (6개월 이상 운영 시) | 6개월 이전 자동 삭제 cron, 파티셔닝 불필요 (교회 규모) | 수동 용량 모니터링 |
 | FCM 토큰 갱신 (iCloud 복원 등) | 흔함 | `didReceiveRegistrationToken` hook → WP 재등록, 기존 device_id 유지 | ✓ `PushServiceTests` |
 | 잘못된 딥링크 URL | 낮음 | 알 수 없는 경로는 홈 탭으로 fallback, 로그에 기록 | ✓ `DeepLinkRouterTests` |
