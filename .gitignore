@@ -71,6 +71,7 @@ iOSInjectionProject/
 .omc/prd.json
 .omc/progress.txt
 .omc/notepad.md
+.omc/project-memory.json
 .claude/scheduled_tasks.lock
 
 # Scratch / cache directories anywhere in the tree
