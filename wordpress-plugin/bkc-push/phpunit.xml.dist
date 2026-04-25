@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.0/phpunit.xsd"
+    bootstrap="tests/bootstrap.php"
+    cacheDirectory=".phpunit.cache"
+    colors="true"
+    beStrictAboutOutputDuringTests="true"
+>
+    <testsuites>
+        <testsuite name="bkc-push">
+            <directory suffix=".php">./tests</directory>
+            <exclude>./tests/stubs</exclude>
+            <exclude>./tests/fixtures</exclude>
+            <exclude>./tests/bootstrap.php</exclude>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory>./includes</directory>
+            <directory>./admin</directory>
+        </include>
+        <exclude>
+            <directory>./tests</directory>
+            <directory>./vendor</directory>
+        </exclude>
+    </source>
+</phpunit>

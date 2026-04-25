@@ -66,4 +66,31 @@ iOSInjectionProject/
 .omc/state/
 .omc/sessions/
 .omc/logs/
+.omc/autopilot/
+.omc/plans/
+.omc/prd.json
+.omc/progress.txt
+.omc/notepad.md
+.claude/scheduled_tasks.lock
+
+# Scratch / cache directories anywhere in the tree
+**/.omc/state/
+**/.omc/sessions/
+**/.phpunit.cache/
+
+# iOS
+ios/BKC/BKC/Resources/GoogleService-Info.plist
+ios/BKC/BKC.xcodeproj/
+ios/BKC/build/
+ios/BKC/DerivedData/
+*.xcuserdatad/
+
+# WordPress
+wordpress-plugin/bkc-push/vendor/
+# Note: composer.lock IS committed for reproducible CI installs (application code, not a library).
+
+# CI
+fastlane/report.xml
+fastlane/test_output/
+.build/
 
